@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
    
+    <!-- Yüz Tespiti (Göz Takibi) İçin Gerekli Kütüphaneler -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface"></script>
    
@@ -42,12 +43,15 @@
 </head>
 <body>
 
+    <!-- Hata Ayıklama Paneli -->
     <div id="debugPanel" class="hidden">
-        <div>Ses Şiddeti: <span id="volumeText">0</span></div>
+        <div>Ses: <span id="volumeText">0</span></div>
+        <div>Ctx: <span id="ctxStateText" class="text-yellow-400">Bekliyor</span></div>
         <div id="audioMeterContainer"><div id="audioMeterFill"></div></div>
         <div id="micStatus" class="text-red-400">Motor: BEKLİYOR</div>
     </div>
 
+    <!-- Kontrol Menüsü -->
     <div class="absolute top-4 left-4 z-[100] flex gap-2 bg-black/50 p-2 rounded-2xl backdrop-blur-md border border-cyan-900/50 interactive">
         <button id="btnFullscreen" class="text-gray-400 hover:text-cyan-400 p-2 transition-colors" title="Tam Ekran"><i class="fa-solid fa-expand text-2xl"></i></button>
         <button id="btnNewTab" class="text-gray-400 hover:text-cyan-400 p-2 transition-colors" title="Yeni Sekmede Aç (Ayna Modu)"><i class="fa-solid fa-arrow-up-right-from-square text-2xl"></i></button>
@@ -59,6 +63,7 @@
         <button id="btnToggleDebug" class="text-gray-400 hover:text-cyan-400 p-2 transition-colors" title="Hata Ayıklama Panelini Aç/Kapat"><i class="fa-solid fa-bug text-2xl"></i></button>
     </div>
 
+    <!-- Başlangıç Ekranı -->
     <div id="startScreen">
         <i class="fa-solid fa-robot text-6xl mb-4 animate-pulse"></i>
         <h1 class="text-3xl font-bold mb-4 text-center">ARKADAŞ Otonom Sistem</h1>
@@ -74,6 +79,7 @@
     <canvas id="eyeCanvas"></canvas>
     <video id="webcam" autoplay playsinline muted class="hidden fixed bottom-6 left-6 w-48 md:w-64 rounded-2xl border-2 border-cyan-500 shadow-[0_0_20px_rgba(0,255,255,0.4)] z-50 object-cover" style="transform: scaleX(-1);"></video>
 
+    <!-- Resim Gösterme Alanı -->
     <div id="imageDisplay" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 bg-black/90 p-6 rounded-3xl border-2 border-cyan-500/50 shadow-[0_0_50px_rgba(0,255,255,0.3)] flex-col items-center justify-center min-w-[300px] min-h-[200px] max-w-[90vw] max-h-[85vh] interactive">
         <button onclick="closeImage(true)" class="absolute -top-4 -right-4 bg-red-600 text-white rounded-full w-12 h-12 flex items-center justify-center hover:scale-110 transition-transform shadow-[0_0_15px_rgba(220,38,38,0.6)] cursor-pointer z-50">
             <i class="fa-solid fa-xmark text-2xl"></i>
@@ -84,6 +90,7 @@
         <img id="displayedImage" src="" class="max-w-full max-h-[75vh] rounded-2xl hidden object-contain transition-opacity duration-500">
     </div>
 
+    <!-- Gerçek Fotoğraf Arama Modalı -->
     <div id="photoSearchModal" class="hidden absolute inset-0 z-[200] bg-black/80 flex items-center justify-center p-4 interactive">
         <div class="bg-gray-900 border border-cyan-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(0,255,255,0.2)]">
             <h3 class="text-cyan-400 text-lg font-semibold mb-4"><i class="fa-solid fa-magnifying-glass mr-2"></i>Hangi gerçek fotoğrafı görmek istiyorsun?</h3>
@@ -95,6 +102,7 @@
         </div>
     </div>
 
+    <!-- Etkileşim UI Katmanı -->
     <div id="uiLayer" class="absolute bottom-6 right-6 z-20 hidden w-full pr-12">
         <div id="subtitle"></div>
 
@@ -116,6 +124,7 @@
         </button>
     </div>
 
+    <!-- Sistem Çalışırken Gösterilecek Hata Kutusu -->
     <div id="runtimeErrorBox" class="hidden fixed top-20 left-1/2 transform -translate-x-1/2 z-[300] bg-red-900/90 text-red-100 px-6 py-3 rounded-2xl border border-red-500 shadow-[0_0_30px_rgba(220,38,38,0.6)] font-semibold text-center transition-opacity duration-300 pointer-events-none">
     </div>
 
@@ -190,6 +199,35 @@
             if (wakeLock !== null && document.visibilityState === 'visible' && isSystemRunning) {
                 requestWakeLock();
             }
+        });
+
+        // --- GLOBAL ETKİLEŞİM KİLİDİ (ANDROID 13 ZIRHI) ---
+        // Kullanıcı ekrana dokunduğu an uykuya dalmış ses motorlarını zorla uyandırır.
+        let isAudioUnlocked = false;
+        const forceWakeAudio = () => {
+            if (isAudioUnlocked) return;
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioContext.state !== 'running') {
+                    audioContext.resume().then(() => console.log("AudioContext dokunma ile UYANDIRILDI!"));
+                }
+                
+                // KESİN KİLİT KIRICI: Sessiz bir osilatör çal
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                gain.gain.value = 0;
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.start(0);
+                osc.stop(audioContext.currentTime + 0.1);
+                
+                isAudioUnlocked = true;
+            } catch(e) { console.warn("Kilit kırma hatası", e); }
+        };
+        ['click', 'touchstart', 'touchend', 'scroll'].forEach(evt => {
+            window.addEventListener(evt, forceWakeAudio, { capture: true, passive: true });
         });
 
         // --- TAM EKRAN VE AYNA MODU ---
@@ -369,12 +407,23 @@
         let vadThreshold = 10; 
 
         function updateDebugPanel(volume, statusText, statusColor) {
-            document.getElementById('volumeText').innerText = volume.toFixed(2);
-            document.getElementById('audioMeterFill').style.width = Math.min(100, (volume / 100) * 100) + '%';
+            const volEl = document.getElementById('volumeText');
+            if (volEl) volEl.innerText = volume.toFixed(2);
+            
+            const fillEl = document.getElementById('audioMeterFill');
+            if (fillEl) fillEl.style.width = Math.min(100, (volume / 100) * 100) + '%';
             
             const statusEl = document.getElementById('micStatus');
-            statusEl.innerText = "Motor: " + statusText;
-            statusEl.className = statusColor;
+            if (statusEl) {
+                statusEl.innerText = "Motor: " + statusText;
+                statusEl.className = statusColor;
+            }
+
+            const ctxEl = document.getElementById('ctxStateText');
+            if (ctxEl && audioContext) {
+                ctxEl.innerText = audioContext.state;
+                ctxEl.className = audioContext.state === 'running' ? "text-green-400" : "text-yellow-400";
+            }
         }
 
         function resetSleepTimer() {
@@ -387,16 +436,20 @@
             }, 60000);
         }
         
-        function initContinuousListening() {
+        async function initContinuousListening() {
             if (!globalMicrophoneStream || isMirrorMode) {
                 updateDebugPanel(0, "MİKROFON YOK", "text-red-500 font-bold");
                 return;
             }
             
             try {
-                // Burada motor önceden (tıklamada) başlatıldı, sadece stream'i bağlıyoruz!
+                // AudioContext'in tamamen aktif olmasını bekle
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
                 if (audioContext.state === 'suspended') {
-                    audioContext.resume();
+                    await audioContext.resume();
                 }
                 
                 const source = audioContext.createMediaStreamSource(globalMicrophoneStream);
@@ -404,17 +457,17 @@
                 analyser.fftSize = 256;
                 analyser.smoothingTimeConstant = 0.8; 
                 
-                // --- İŞTE HAYAT KURTARAN CHROME/SAFARI HACK'İ BURADA ---
+                // OPTİMİZASYON İPTALİ (0 DEĞİL 0.001): Tarayıcı 0'ı görünce işlemciyi uyutur. 
                 const dummyGain = audioContext.createGain();
-                dummyGain.gain.value = 0; // Sesi tamamen kıs, yankı yapmasın
+                dummyGain.gain.value = 0.001; 
                 
                 source.connect(analyser);
                 analyser.connect(dummyGain);
-                dummyGain.connect(audioContext.destination); // Sistemi kandır!
-                // ----------------------------------------------
+                dummyGain.connect(audioContext.destination);
                 
                 const bufferLength = analyser.frequencyBinCount;
                 dataArray = new Uint8Array(bufferLength);
+                console.log("Ses Analizörü Başarıyla Bağlandı");
             } catch (err) {
                 console.error("Web Audio API Hatası:", err);
                 updateDebugPanel(0, "AUDIO API HATASI", "text-red-500 font-bold");
@@ -500,7 +553,7 @@
         function detectVoiceActivity() {
             if (!isSystemRunning || isMirrorMode) return;
             
-            if (audioContext && audioContext.state === 'suspended') {
+            if (audioContext && audioContext.state !== 'running') {
                 audioContext.resume();
             }
 
@@ -960,6 +1013,8 @@
                 await requestWakeLock();
 
                 try {
+                    // ANDROID OPTİMİZASYONU: Katı ses kısıtlamaları (gürültü engelleme iptali vs.) kaldırıldı.
+                    // Çünkü Android donanımları bu filtreleri uygularken mikrofonu sıfırlayabiliyor.
                     globalMicrophoneStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     hasAudio = true;
                     hasVideo = true;
@@ -1037,17 +1092,7 @@
         window.onload = function () {
             // ANDROID İÇİN KRİTİK GÜNCELLEME: AudioContext tam olarak TIKLAMA ANINDA oluşturulmalıdır
             document.getElementById('btnStart').addEventListener('click', () => {
-                try {
-                    if (!audioContext) {
-                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    }
-                    if (audioContext.state === 'suspended') {
-                        audioContext.resume();
-                    }
-                    console.log("AudioContext durumu: ", audioContext.state);
-                } catch (e) {
-                    console.error("AudioContext tetikleme hatası: ", e);
-                }
+                forceWakeAudio(); // YENİ: Kilit kırıcıyı doğrudan çağır
                 startSystem();
             });
 
